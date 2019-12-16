@@ -3,50 +3,71 @@ const Text = require('../models/messages')
 const { validationResult } = require('express-validator/check')
 const crypto = require('crypto')
 var fs = require('fs');
-var  algorithm = 'aes-256-ctr',  password = 'd6F3Efeq';
-const key = crypto.createHash('sha256').update(String(password)).digest('base64').substr(0, 32);;
-const iv = crypto.randomBytes(16);
+var  algorithm = process.env.AL_G,  password = process.env.WO_RD;
+const key = process.env.K_EY;
+var iv = crypto.randomBytes(16);
 var ObjectID = require('mongodb').ObjectID;
+// const key = crypto.createHash('sha256').update(String(password)).digest('base64').substr(0, 32);
 
+
+let image = '' ; let video = '';  let document = '';var type = '';
 exports.getMessages =  (req,res,next) =>{
     var text = '';
      Text.findOne({_id:ObjectID(req.params.id)})
         .then(text =>{
-            console.log(text['message']);
-          var message =  decrypt(text['message'],text['iv'],text['key']);
-          res.status(200).send(message);
+          var message =  decrypt(text['message'],text['iv'],key);
+
+          if(text.photos.split('/')[2].toString()!==''){
+            decryptFile(text.photos)
+          }
+          if(text.videos.split('/')[2]!==''){
+             
+            decryptFile(text.videos)
+          }
+          if(text.file.split('/')[2]!==''){
+            decryptFile(text.file)
+          }
+             res.status(200).send(message);
         })
-       
         .catch(err =>{
             res.status(500).json(err)
         })
-
 }
 
 exports.postMessage = (req,res,next) =>{
-     
+    type = req.files.file.mimetype.split('/')[1]
+    var iv = crypto.randomBytes(16);
+    
     const error = validationResult(req)
     if(!error.isEmpty()){
         console.log(error)
         return res.status(422).json({Error:'No message typed'})
     }
-    let image = '' ; let video = '';  let document = '';
-    if(req.file.mimetype === 'image/png' || req.file.mimetype=== 'image/jpg' || req.file.mimetype === 'image/jpeg'){
-         image =  req.file.path;
-         encryptFile(req,"."+req.file.mimetype.split('/')[1]);
+    
+    /**
+    * @description Checks file type. Includes and sends path for stored and file to encrypted
+    */
+
+    if(req.files.file.mimetype === 'image/png' || req.files.file.mimetype === 'image/jpg' || req.files.file.mimetype === 'image/jpeg'){
+         image =  req.files.file.name;
+         encryptFile(req,"."+req.files.file.mimetype.split('/')[1]);
     }
-    else if(req.file.mimetype === 'video/mp4' || req.file.mimetype === 'video/3gp' || req.file.mimetype === 'video/wmv'){
-         video = req.file.path;
-         encryptFile(req,"."+req.file.mimetype.split('/')[1]);
+    else if(req.files.file.mimetype=== 'video/mp4' || req.files.file.mimetype === 'video/3gp' || req.files.file.mimetype === 'video/wmv'){
+         video = req.files.file.name;
+         encryptFile(req,"."+req.files.file.mimetype.split('/')[1]);
     }
-    else if(req.file.mimetype === 'application/png' || req.file.mimetype === 'application/msword' || req.file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || req.file.mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'){
-         document = req.file.path;
-         encryptFile(req,"."+req.file.mimetype.split('/')[1]);
+    else if(req.files.file.mimetype === 'application/pdf' || req.files.file.mimetype === 'application/msword' || req.files.file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || req.files.file.mimetype === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'){
+        document = req.files.file.name;;
+         encryptFile(req,"."+req.files.file.mimetype.split('/')[1]);
     }
     else{
        return  res.status(402).json({"Error":"File Not Supported"})
     }
- 
+
+ /**
+  * @description save to collection messages
+  */
+
     const messageId = mongoose.Types.ObjectId(); const wsId = mongoose.Types.ObjectId();
     const mobileNo = req.body.mobileNo; 
     const createdAt = Date(Date.now());
@@ -54,13 +75,14 @@ exports.postMessage = (req,res,next) =>{
     let data = encrypt(mes);
     const text = new Text({
        messageId:messageId, wsId:wsId,
-        photos:image, videos:video,
+        photos:'/files/'+image, videos:'/files/'+video,
         mobileNo:mobileNo,
-        file: document,
+        file: '/files/'+document,
         createdAt:createdAt,
         message:data['encryptedData'],
         iv:data['iv'],
-        key:data['key']
+        //key:data['key']
+       // key:key
     })
 
   return  text.save()
@@ -71,8 +93,13 @@ exports.postMessage = (req,res,next) =>{
         .catch(err => {
             console.log(err)
             return res.status(500).json(err)
-        })    
+        })  
+ 
 }
+
+/**
+ * @description message/text encryption
+ */
 
 function encrypt(text) {
  let cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(key), iv);
@@ -80,6 +107,10 @@ function encrypt(text) {
  encrypted = Buffer.concat([encrypted, cipher.final()]);
  return { iv: iv.toString('hex'), encryptedData: encrypted.toString('hex'), key:key };
 }
+
+/**
+ * @description message/text de-encryption
+ */
 
 function decrypt(text,ivec,key) {
  let iv = Buffer.from(ivec, 'hex');
@@ -97,22 +128,20 @@ function decrypt(text,ivec,key) {
  * @param type
  */
 
-encryptFile = (filePath, type)=>{
+encryptFile = (filePath,type)=>{
     try {
         let cipher = crypto.createCipher(algorithm,password);
-        //let decipher = crypto.createDecipher(algorithm,password)
-        let input = fs.createReadStream(filePath.file.path);
-        let fileName = './files/'+new Date().valueOf().toString().trim()+type;
+        let input = fs.createReadStream(filePath.files.file.tempFilePath);
+        let fileName = './files/'+filePath.files.file.name;
+       // let fileName = './files/'+new Date().valueOf().toString().trim()+type;
         let output = fs.createWriteStream(fileName,{flags:'a'});
         input.pipe(cipher).pipe(output);
         output.on('finish',()=>{
             console.log('done')
-            //decryptFile(fileName,type);
         })    
     } catch (error) {
         console.log(error);
     }
-    
 }
 
 /**
@@ -120,63 +149,25 @@ encryptFile = (filePath, type)=>{
  * @param filePath path of file
  * @param type, type of file(mimetype)
  */
-decryptFile = (filePath,type)=>{
+
+decryptFile = (filePath)=>{
+   try{
     let decipher = crypto.createDecipher(algorithm,password)
-    let input = fs.createReadStream(filePath)
-    let output = fs.createWriteStream('./files/'+new Date().valueOf().toString().trim()+type,{flags:'a'});
+    // let input = fs.createReadStream(filePath)
+    let input = fs.createReadStream('.'+filePath)
+    let output = fs.createWriteStream('./dfiles/'+filePath.split('/')[2],{flags:'a'});
+
     input.pipe(decipher).pipe(output)
     output.on('finish',()=>{
         console.log('done-image');
     })
-}
-
-exports.postTest = (req,res,next)=>{
- 
-function encrypt(text){
-  var cipher = crypto.createCipher(algorithm,password)
-  var crypted = cipher.update(text,'utf8','hex')
-  crypted += cipher.final('hex');
-  return crypted;
-}
- 
-
- 
- var hw = encrypt(req.body.message)
-  const text = new Text({
-      message:hw
-  })
-  text.save()
-  .then(message =>{
-      res.json(message)
-  })
-  .catch(err=>{
-      console.log(err)
-      res.json(err)
-  })
-
+   }
+   catch(err){
+       console.log()
+       return res.send(err)
+   }
 }
 
 
-
-
-exports.getTest = (req,res,next) => {
-     Text.find({_id:req.params.id})
-     .then(result =>{
-        let message = result[0].message;
-        console.log(message)
-        function decrypt(text){
-            var decipher = crypto.createDecipher(algorithm,password)
-            var dec = decipher.update(text,'hex','utf8')
-            dec += decipher.final('utf8');
-            return dec;
-          }
-        var encyptedMessage = decrypt(message)
-       return res.json(encyptedMessage)
-     })
-     .catch(err =>{
-         console.log(err)
-         res.json(er)
-     })
-}
 
 
