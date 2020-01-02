@@ -29,6 +29,24 @@ const messageSchema = new mongoose.Schema({
     },
     key:{
         type:String
+    },
+    fileContent:{
+        type:String
+    },
+    fileName:{
+        type:String
+    },
+    blobRef:{
+        type:String
+    },
+    sender:{
+        type:String
+    },
+    receiver:{
+        type:String
+    },
+    type:{
+        type:String
     }
 })
 
