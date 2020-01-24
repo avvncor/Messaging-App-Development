@@ -1,29 +1,44 @@
 const mongoose = require('mongoose');
-const Text = require('../models/messages')
 const { validationResult } = require('express-validator/check')
 const crypto = require('crypto')
 const fs = require('fs');
-const  algorithm = process.env.AL_G,  password = process.env.WO_RD;
-const key = process.env.K_EY;
-var iv = crypto.randomBytes(16);
 var ObjectID = require('mongodb').ObjectID;
-const account = 'bluediag718';
-const accountKey = 'DBsRCm+SzRx0z0f+qDF5XQIvVoqwbT4FVbAlrGoYkCaaDmGR1DbE/UMnPOxajlqAvaSi17Y8PFDGYeSmuCVh0w==';
-const connectionString = 'Endpoint=sb://blueforbasha.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=B/qn0eDMsnnnZFCbAoPygv++qF8GAY39L+lCzvXjOY8=';
-const queueName = 'blueforbasha'; 
 var cron = require('node-cron');
-var blobRef = '';
+/* File Imports */
+const Text = require('../models/messages')
+const connections = require('../connections')
+/* Imports Azure Libraries */
 var azure = require('azure');
-var notificationHubService = azure.createNotificationHubService('blueforbashaNH (blueforbashaNHN/blueforbashaNH)','Endpoint=sb://blueforbashanhn.servicebus.windows.net/;SharedAccessKeyName=DefaultFullSharedAccessSignature;SharedAccessKey=2mYAuFp9k2xa7W4OcH4+3y/9HDxJyXQhDg5hMYRc+Y8=');
-
-//Azure Libraries 
-const { BlobServiceClient, StorageSharedKeyCredential, Aborter, BlobURL, BlockBlobURL, ContainerURL, ServiceURL, StorageURL, uploadStreamToBlockBlob} = require("@azure/storage-blob");
+const { BlobServiceClient, StorageSharedKeyCredential} = require("@azure/storage-blob");
 const { DefaultAzureCredential  } = require("@azure/identity");
 const { ServiceBusClient, ReceiveMode } = require("@azure/service-bus");
-var azureSb = require('azure-sb');
-// const { setLogLevel } = require ("@azure/logger");
+const CosmosClient = require('@azure/cosmos').CosmosClient;
+var iv = crypto.randomBytes(16);
+// const key = process.env.K_EY;
+/* Connection Strings, Keys etc */
+const account = connections.StorageAccount.account
+const accountKey = connections.StorageAccount.accountKey
+const connectionString =  connections.ServiceBusQueue.connectionString
+const queueName = connections.ServiceBusQueue.queueNameBlueSecures
+var notificationHubService = azure.createNotificationHubService(connections.NotificationBus.NotificationBusName,connections.NotificationBus.NotificationBusString);
+const  algorithm = process.env.AL_G,  password = process.env.WO_RD;
 
-//Code Starts from here
+/** 
+ * @description Cosmos 
+ **/ 
+const config = require('../config')
+const endpoint = config.endpoint;
+const key = config.key;
+const client = new CosmosClient({ endpoint, key });
+const databaseId = config.database.id
+const containerId = config.container.cont
+
+
+let image = '' ; let video = '';  let document = '';var type = '';
+
+/**
+ * @description Blob Storage 
+ **/
 const sharedKeyCredential = new StorageSharedKeyCredential(account, accountKey);
 const defaultAzureCredentials  = new DefaultAzureCredential();
 
@@ -32,9 +47,36 @@ const blobServiceClient = new BlobServiceClient(
   sharedKeyCredential, defaultAzureCredentials
 );
 
-// setLogLevel("info")
 
-let image = '' ; let video = '';  let document = '';var type = '';
+exports.storageQueue = async ( req, res, next) =>{
+
+  let { QueueServiceClient, StorageSharedKeyCredential } = require("@azure/storage-queue");
+  let sharedKeyCredential = new StorageSharedKeyCredential(account, accountKey);
+   
+  let queueServiceClient = new QueueServiceClient(
+    `https://${account}.queue.core.windows.net`,
+    sharedKeyCredential,
+    {
+      retryOptions: { maxTries: 4 }, // Retry options
+      telemetry: { value: "BasicSample/V11.0.0" } // Customized telemetry string
+    }
+  );
+   
+   var stream =  await base64_encode(req.file.buffer)
+   
+   
+  async function main() {
+    const queueClient = queueServiceClient.getQueueClient('bfors');
+    // Send a message into the queue using the sendMessage method.
+    const sendMessageResponse = await queueClient.sendMessage(stream);
+    console.log(
+      `Sent message successfully, service assigned message Id: ${sendMessageResponse.messageId}, service assigned request Id: ${sendMessageResponse.requestId}`
+    );
+  }
+
+  main()
+}
+
 exports.getMessages =  (req,res,next) =>{
     var text = '';
      Text.findOne({_id:ObjectID(req.params.id)})
@@ -138,22 +180,16 @@ exports.cronJob = (req, res, next)=>{
    
 }
 
-
 exports.postMessage = async (req,res,next) =>{
     // type = req.files.file.mimetype.split('/')[1]
+    console.log('amaan')
     var iv = crypto.randomBytes(16);
- 
     const error = validationResult(req)
     if(!error.isEmpty()){
         console.log(error)
         return res.status(422).json({Error:'No message typed'})
     }
-    
-    /**
-    * @description Checks file type. Includes and sends path 
-    */
-  
-     
+      
       if(req.file){
         if(req.file.mimetype === 'image/png' || req.file.mimetype === 'image/jpg' || req.file.mimetype === 'image/jpeg'){
           image =  req.file.originalname;
@@ -174,91 +210,51 @@ exports.postMessage = async (req,res,next) =>{
          }
       }
     
-
- /**
-  * @description saving to collection "messages"
-  */
-
-    const messageId = mongoose.Types.ObjectId(); const wsId = mongoose.Types.ObjectId();
-    const mobileNo = req.body.mobileNo; 
-    const createdAt = Date(Date.now());
-    const mes = req.body.message;
-
-
-        if(mes){
+    //  const messageId = mongoose.Types.ObjectId(); const wsId = mongoose.Types.ObjectId();
+     const mobileNo = req.body.mobileNo; 
+     const createdAt = Date(Date.now());
+     let mes = ''
+      //if only text
+        if(req.body.message){
+            mes = req.body.message;
           if(mes.length.toString()!=='0'){
             console.log('on text')
             let messageBody = {
-              messageId: messageId.toString(),
+              // messageId: messageId.toString(),
               mobileNo:mobileNo, createdAt:createdAt,
               message: mes,
               // sessionId:'my-session'
             };
-      
-             async function main(){
-              try{
-              const sbClient = ServiceBusClient.createFromConnectionString(connectionString);
-              const queueClient = sbClient.createQueueClient(queueName)
-              const sender = queueClient.createSender();
-      
-              await sender.send({
-                body:messageBody,
-                // sessionId:'my-session'
-              });
-                await queueClient.close();
-                return res.send('Sent message')
-              }
-              catch(err){
-                res.send(err)
-                console.log(err)
-              }
-         
-          }
-             main().catch((err) => {
-                 console.log("Error occurred: ", err);
-              });
-      
+            // notification('A message has been sent you to on ' +createdAt)
+            // await queueMessage(messageBody)
+            await messageToCosmos(messageBody)
+            res.send('message sent')
           }
         }
 
-      
-    
-        if(image){
-          if(image.length.toString()!=='0'){
+      //if file    
+        if(image || video || document){
+          if(image.length.toString()!=='0' || video.length.toString()!=='0' || document.length.toString()!=='0' ){
             console.log('in the file section')
-  
-              let messageBody = {
+            filename = req.file.originalname+'_'+messageId.toString()+'_'+Date.now();
+            
+               const blobref = await createBlob(filename, req.file)
+        
+               notification('A file has been sent to you on '+Date(Date.now()) )
+
+               let messageBody = {
                 messageId: messageId.toString(),
                 mobileNo:mobileNo, createdAt:createdAt, type:req.file.mimetype.split('/')[1],
-                photos:await base64_encode(req.file.buffer),
-                sessionId:'my-session'
+                file:filename
               };
+              
+              await queueMessage(messageBody)  
              
-              async function main(){
-                try{
-                const sbClient = ServiceBusClient.createFromConnectionString(connectionString);
-                const queueClient = sbClient.createQueueClient(queueName)
-                const sender = queueClient.createSender();
-        
-                await sender.send({
-                  body:messageBody,
-                  // sessionId:'my-session'
-                });
-                  await queueClient.close();
-                  return res.send('Sent message')
-                }
-                catch(err){
-                  res.send(err)
-                  console.log(err)
-                }
-            }
-        
-            main().catch((err) => {
-                console.log("Error occurred: ", err);
-              });
-  
+              await messageToCosmos(messageBody)
+              res.send(messageBody)
           }
         }
+       
 
     
     // const text = new Text({
@@ -286,20 +282,12 @@ exports.postMessage = async (req,res,next) =>{
  
 }
 
-/**
- * @description message/text encryption
- */
-
 function encrypt(text) {
  let cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(key), iv);
  let encrypted = cipher.update(text);
  encrypted = Buffer.concat([encrypted, cipher.final()]);
  return { iv: iv.toString('hex'), encryptedData: encrypted.toString('hex'), key:key };
 }
-
-/**
- * @description message/text decryption
- */
 
 function decrypt(text,ivec,key) {
  let iv = Buffer.from(ivec, 'hex');
@@ -309,13 +297,6 @@ function decrypt(text,ivec,key) {
  decrypted = Buffer.concat([decrypted, decipher.final()]);
  return decrypted.toString();
 }
-
-
-/**
- * @description to encrypt file
- * @param filePath
- * @param type
- */
 
 encryptFile = (filePath,type)=>{
     try {
@@ -332,14 +313,6 @@ encryptFile = (filePath,type)=>{
         console.log(error);
     }
 }
-
-
-
-/**
- * @description to decrypt file
- * @param filePath path of file
- * @param type, type of file(mimetype)
- */
 
 decryptFile = (filePath)=>{
    try{
@@ -359,10 +332,6 @@ decryptFile = (filePath)=>{
    }
 }
 
-/**
- * @description API to create Azure Storage Blob Container
- * */ 
-
 function base64_encode(file) {
     // read binary data
     //var bitmap = fs.readFileSync(file);
@@ -379,109 +348,222 @@ function base64_decode(base64str, file) {
     console.log('******** File created from base64 encoded string ********');
 }
 
-exports.createBlob = async (req,res, next) =>{
-   
-    try{
-        async function main() {
-            const containerClient = blobServiceClient.getContainerClient('container1');
-            const content = base64_encode(req.file.buffer);
-            const blobName = photoId;
-            //  "newblob" + new Date().getTime();
-            const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-            const uploadBlobResponse = await blockBlobClient.upload(content, content.length);
-            console.log(`Upload block blob ${blobName} successfully`, uploadBlobResponse.requestId);
-          }
-           
-          main();
-    }
-    catch(err){
-        res.send(err)
-    }
-
-}
-
-exports.downloadBlob = async (req, res, next)=>{
-    const ref = req.params.id;
-    try{
-         
-        async function main(){
-          const containerClient = blobServiceClient.getContainerClient('innovallent');
-          const blobClient = containerClient.getBlobClient('newblob1576820587746');
-
-          const downloadBlockBlobResponse = await blobClient.download();
-        const file = await streamToString(downloadBlockBlobResponse.readableStreamBody).then(data=>{
-            base64_decode(data,'./files/8.jpeg')
-        });
-        
-          async function streamToString(readableStream) {
-            return new Promise((resolve, reject) => {
-              var chunks = [];
-              readableStream.on("data", (data) => {
-                chunks.push(data.toString());
-              });
-              readableStream.on("end", () => {
-
-               resolve( chunks.join(""))
-                
-              });
-              readableStream.on("error", reject);
-            });
-          }
- 
-        }
-
-        main()
-
-    }
-    catch(err){
-        return res.send(err)
-    }
-
-}
-
-
-
-exports.receiveMessage =  (req, res, next)=>{
-  
-    async function main(){
-        const sbClient = ServiceBusClient.createFromConnectionString(connectionString); 
-        const queueClient = sbClient.createQueueClient(queueName);
-        const receiver = queueClient.createReceiver(ReceiveMode.receiveAndDelete);
-
-        try{          
-            const messages = await receiver.receiveMessages(10)
-            console.log("Received messages:");
-            var ops = messages.map(message => message.body)
-            res.send(ops)
-
-            await queueClient.close();
-        }
-       catch (err){
-         console.log(err)
-         res.send(err)
-       }
-    }
-
-    main().catch((err) => {
-        console.log("Error occurred: ", err);
-      });
-}
-
-exports.notification = (req,res, next)=>{
+notification = (message) =>{
   var payload = {
     data: {
-      msg: 'Hello!'
+      msg: message
     }
   };
   notificationHubService.gcm.send(null, payload, function(error){
     if(!error){
-      return res.send('notification send')
+       return console.log('Notification sent')
     }
-
-      return res.send(error)
+    
+      console.log(error)
   });
 }
 
-    
+createBlob = (blobName,blob)=>{
+    try{
+      async function main() {
+          const containerClient = blobServiceClient.getContainerClient('blue');
+          const content = base64_encode(blob.buffer);
+          const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+          const uploadBlobResponse = await blockBlobClient.upload(content, content.length);
+          console.log(`Upload block blob ${blobName} successfully`, uploadBlobResponse.requestId);
+          return uploadBlobResponse.requestId;
+        }
+         
+        main();
+  }
+  catch(err){
+      res.send(err)
+  }
+}
 
+queueMessage = (messageBody) => {
 
+  async function main()
+      {
+           try{
+               const sbClient = ServiceBusClient.createFromConnectionString(connectionString);
+               const queueClient = sbClient.createQueueClient(queueName)
+               const sender = queueClient.createSender();
+               
+               sender.send({
+                body:messageBody,
+                // sessionId:'my-session'
+               }); 
+              
+               console.log('message sent to the queue')
+               }
+              catch(err){
+               console.log(err)
+               }
+  
+       }
+  
+  main()
+  .catch(err=>console.log(err))
+  
+      
+}
+
+async function messageToCosmos(itemBody) {
+    const { item } = await client.database(databaseId).container(containerId).items.upsert(itemBody);
+    console.log(`Created message item with id:\n${itemBody.id}\n`);
+  };
+
+  // TEST API's DOWN BELOW
+
+exports.cosmos = (req, res, next) => {
+ 
+  async function main(){
+    const sbClient = ServiceBusClient.createFromConnectionString(connectionString); 
+    const queueClient = sbClient.createQueueClient(queueName);
+    const receiver = queueClient.createReceiver(ReceiveMode.receiveAndDelete);
+    try{
+      const message = await receiver.receiveMessages(28779)
+      res.send(message)
+    }
+    catch(err){
+      res.send(err)
+    }
+  }
+ 
+  main().catch((err)=>{
+    console.log(err)
+  })
+ 
+  
+}
+
+exports.Queue = (req, res, next) =>{
+  async function main(){
+    try{
+    const sbClient = ServiceBusClient.createFromConnectionString(connectionString);
+    const queueClient = sbClient.createQueueClient(queueName)
+    const sender = queueClient.createSender();
+
+    await sender.send({
+      body:req.body.message,
+      // sessionId:'my-session'
+     });
+      await queueClient.close();
+      console.log('successful')
+      return res.send('Sent message')
+    }
+    catch(err){
+      res.send(err)
+      console.log(err)
+    }
+  }
+
+  main().catch((err) => {
+    console.log("Error occurred: ", err);
+ });
+
+}
+
+exports.createBlob = async (req,res, next) =>{
+   
+  try{
+      async function main() {
+          const containerClient = blobServiceClient.getContainerClient('blue');
+          const content = base64_encode(req.file.buffer);
+          const blobName = 'blobId';
+          //  "newblob" + new Date().getTime();
+          const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+          const uploadBlobResponse = await blockBlobClient.upload(content, content.length);
+          console.log(`Upload block blob ${blobName} successfully`, uploadBlobResponse.requestId);
+          res.send('successful')
+        }
+         
+        main();
+  }
+  catch(err){
+      res.send(err)
+  }
+
+}
+
+exports.downloadBlob = async (req, res, next)=>{
+  const ref = req.params.id;
+  try{
+       
+      async function main(){
+        const containerClient = blobServiceClient.getContainerClient('innovallent');
+        const blobClient = containerClient.getBlobClient('newblob1576820587746');
+
+        const downloadBlockBlobResponse = await blobClient.download();
+      const file = await streamToString(downloadBlockBlobResponse.readableStreamBody).then(data=>{
+          base64_decode(data,'./files/8.jpeg')
+      });
+      
+        async function streamToString(readableStream) {
+          return new Promise((resolve, reject) => {
+            var chunks = [];
+            readableStream.on("data", (data) => {
+              chunks.push(data.toString());
+            });
+            readableStream.on("end", () => {
+
+             resolve( chunks.join(""))
+              
+            });
+            readableStream.on("error", reject);
+          });
+        }
+
+      }
+
+      main()
+
+  }
+  catch(err){
+      return res.send(err)
+  }
+
+}
+
+exports.receiveMessage =  (req, res, next)=>{
+
+  async function main(){
+      const sbClient = ServiceBusClient.createFromConnectionString(connectionString); 
+      const queueClient = sbClient.createQueueClient(queueName);
+      const receiver = queueClient.createReceiver(ReceiveMode.receiveAndDelete);
+
+      try{          
+          const messages = await receiver.receiveMessages(10)
+          console.log("Received messages:");
+          var ops = messages.map(message => message.body)
+          res.send(ops)
+
+          await queueClient.close();
+      }
+     catch (err){
+       console.log(err)
+       res.send(err)
+     }
+  }
+
+  main().catch((err) => {
+      console.log("Error occurred: ", err);
+    });
+}
+
+exports.notification = (req,res, next)=>{
+var payload = {
+  data: {
+    msg: 'successful'
+  }
+};
+notificationHubService.gcm.send(null, payload, function(error){
+  if(!error){
+    return res.send('notification send')
+  }
+
+     res.send(error)
+    console.log(error)
+});
+}
