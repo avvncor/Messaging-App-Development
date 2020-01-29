@@ -5,6 +5,8 @@ const { DefaultAzureCredential  } = require("@azure/identity");
 const CosmosClient = require('@azure/cosmos').CosmosClient;
 const messageRoute = require('./routes/messages')
 const bodyParser = require('body-parser')
+const {client, xml, jid} = require('@xmpp/client')
+const debug = require('@xmpp/debug')
 const express = require('express')
 const multer = require('multer');
 var https = require('https');
@@ -20,13 +22,40 @@ const app = express();
 var sender, item;
 require('events').EventEmitter.defaultMaxListeners = 40
 
+/**
+ * @description Connect to XMPP SERVER 
+ */
+const xmpp = client({
+    service: connections.Xmpp.service,
+    // domain: connections.Xmpp.domain,
+    resource: connections.Xmpp.resource,
+    username: connections.Xmpp.username,
+    password: connections.Xmpp.password,
+  })
+
+// debug(xmpp, true)
+xmpp.on('error', err => {
+    console.error('We Have Error '+ err)
+  })
+
+xmpp.on('offline', () => {
+    console.log('offline')
+  })
+
+  xmpp.on('status', status => {
+    // console.debug(status)
+    console.log(status)
+  })
+
+  xmpp.start().catch(console.error)
+
+
 /***
  * @description Service Bus Queue
  * @exports Service Bus Connection String
  * @exports Service Bus Queue Name
  * @function
  */
-
 const connectionString = connections.ServiceBusQueue.connectionString;
 const queueName = connections.ServiceBusQueue.queueNameBlueSecures;
 
@@ -44,11 +73,11 @@ const queueName = connections.ServiceBusQueue.queueNameBlueSecures;
  */
 const endpoint = config.endpoint;
 const key = config.key;
-const client = new CosmosClient({ endpoint, key });
+const clientCosmos = new CosmosClient({ endpoint, key });
 const databaseId = config.database.id
 const containerId = config.container.cont
 
-item  =  client.database(databaseId).container(containerId).items;
+item  =  clientCosmos.database(databaseId).container(containerId).items;
 
 
  

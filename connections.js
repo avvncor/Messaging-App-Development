@@ -17,4 +17,11 @@ connection.NotificationBus = {
     NotificationBusString: 'Endpoint=sb://bluesecuresnhn.servicebus.windows.net/;SharedAccessKeyName=DefaultFullSharedAccessSignature;SharedAccessKey=7QcIAWuzdsfOyP/+PgG1QreR2mRL8xGQeTKyIA6QArU='
 }
 
+connection.Xmpp = {
+    service: 'bluedeepej.eastus.cloudapp.azure.com',
+    domain: 'bluedeepej.eastus.cloudapp.azure',
+    resource: 'web',
+    username: '8899084992',
+    password: '123456',
+}
 module.exports = connection;
